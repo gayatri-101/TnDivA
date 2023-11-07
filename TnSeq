@@ -7,26 +7,26 @@ library(permute)
 library(tidyr)
 library(DESeq2)
 library(edgeR)
-library(ggplot2)
+library(ggrepel)
 
 # setwd('~/Dropbox/TnSeq_project/gayatri_data/')
-getwd()
+setwd('~/Documents/')
 
-### Read in data files
+
+### Read counts in data files for each insertion present within a gene
 # novo <- read.csv('Novo read count data.csv', h = T)
 novo1 <- read.csv('NovoGHISSsetnew1.csv', h = T)
 novo2 <- read.csv('NovoGHISSsetnew2.csv', h = T)
 novo3 <- read.csv('NovoGHISSplasmiddata.csv', h = T)
 
 
+#If the file is large and seperate files spliting the gene information can be uploaded. In that case bind all th files before running the TnDivA codes 
 #bind all the rows as a single file
 novonew  <- bind_rows(novo1, novo2, novo3)
 
 
-head(novonew)
-# novo <- novo %>% select(-GH2_7_S47, -GH2_8_S48) ## remove contaminted ground replicates
 
-#Normalization of data
+# If Normalization of data is needed 
 # Extract the count data (excluding the 'Pos' and 'Genes' columns)
 count_matrix <- as.matrix(novonew[, -c(1, 8)])
 
@@ -59,22 +59,22 @@ normalized_data <- data.frame(Genes = gene_names, normalized_counts)
 # Write the normalized data to a CSV file
 write.csv(normalized_data, file = "normalized_data_output.csv", row.names = FALSE)
 
-
-## isolate genes names
+#Data processing before calculating Effective density
+## isolate genes names from the dataset 
 gene_id <- novonew %>% 
   separate(Genes, letters[1:20], sep=';') %>%
   select(b) %>% 
   separate(b, letters[1:2], sep='-') %>%
   select(b)
 
-#If normalized data is used then: use the normalized data for rest of the code (as an example see below)
-## starting with isolate genes names
+#If the data is normalized than: use the normalized read count data file for rest of the code (as an example see below)
+## isolate genes names
 gene_id <- normalized_data %>% 
   separate(Genes, letters[1:20], sep=';') %>%
   select(b) %>% 
   separate(b, letters[1:2], sep='-') %>%
   select(b)
-# Follow all other codes with normalized data
+
 
 ## new data with raw counts by gene name
 new_df <- novonew %>% 
@@ -85,6 +85,7 @@ new_df <- novonew %>%
 #extract unique genes
 unique_gene_names <- unique(new_df$gene_name)
 write.csv(unique_gene_names, "unique_gene_names.csv")
+
 
 
 # total_sites <- new_df %>%
@@ -98,13 +99,14 @@ long_df <- new_df %>%
   mutate(location = substr(treatment, 1, 1))
 
 
+
 # total_hits <- long_df %>% 
 #   group_by(gene_name, treatment) %>% 
 #   summarize(hits = sum(count)) %>% 
 #   mutate(location = substr(treatment, 1, 1))
 
-
-
+#Apply TnDivA in the processed data
+## TnDivA: Shannom diversity index and Effective density calculation
 ## Calculate shannon, effective sites of equal hits (exp(shannon)), and effective density (exp(shannon)/length)
 density_df <- long_df %>% 
   group_by(gene_name, treatment, location) %>% 
@@ -117,10 +119,11 @@ density_df <- long_df %>%
          simpson_effective_sites = 1/(1-simpson),
          simpson_effective_density = simpson_effective_sites / total_sites)
 
+#output density file
 write.csv(density_df, "density_df.csv")
 
-# Extract the information about the start and end position of the gene
-density_df1 <- long_df %>%
+#effective density data with the position information
+density_pos_df <- long_df %>%
   group_by(gene_name, treatment, location) %>%
   summarize(
     Start_Pos = min(Pos),
@@ -138,64 +141,58 @@ density_df1 <- long_df %>%
   ) %>%
   ungroup()
 
-## Plot effective density data 
-ggplot(density_df1, aes(gene_name, effective_density, col = location))+
-  geom_point() +
-  xlab("Gene Position") +
-  ylab("Effective Density") +
-  ggtitle("Effective Density AI-2") +
-  theme(plot.title = element_text(hjust = 0.5),
-        legend.key = element_rect(fill = "transparent"))  # This should make the legend background transparent
+#output density file with start and end position of the gene in a seperate column
+write.csv(density_pos_df, "densitypos_df.csv")
 
-#Plot effective density data vs genome positions
+
+## Plot effective density data vs genome position
 ggplot(density_df1, aes(Start_Pos, effective_density, col = location)) +
   geom_point() +
-  scale_x_continuous(breaks = seq(1000000, 5000000, by = 1000000),
-                     labels = c("1,000,000", "2,000,000", "3,000,000", "4,000,000", "5,000,000")) +
+  scale_x_reverse() +
+  scale_x_continuous(breaks = seq(0, 4000000, by = 1000000),
+                     labels = c("0", "1,000,000", "2,000,000", "3,000,000", "4,000,000")) +
   xlab("Genome Position") +
   ylab("Effective Density") +
-  ggtitle("Effective Density AI-1") +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"),  # Make the heading bold
+  ggtitle("Effective Density AI-2") +
+  theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Make title bigger and bold
+        axis.title = element_text(size = 14, face = "bold"),  # Make axis titles bigger and bold
         axis.text = element_text(face = "bold"),  # Make axis text bold
         panel.background = element_rect(fill = "white"),  # Set the panel background to white
         panel.grid.major = element_line(color = "white", size = 0.2),
         axis.line = element_line(color = "black", size = 0.5),  # Draw lines on the axes
         axis.line.x = element_line(color = "black", size = 0.5),  # Add a black line on the x-axis
-        legend.key = element_rect(fill = "transparent")) +  # Don't make legend text bold
+        legend.key = element_rect(fill = "transparent"),
+        legend.title = element_text(size = 12, face = "bold"),  # Make legend title bold
+        legend.text = element_text(size = 12, face = "bold")) +  # Make legend text (labels) bold
   labs(col = "") +  # Set the legend title
-  scale_color_discrete(labels = c("Ground", "ISS" ))  # Set legend lab
+  scale_color_discrete(labels = c("Ground", "ISS" )) +  # Set legend labels
+  theme(legend.text = element_text(face = "bold"))  # Make legend text bold
 
 
-
-### Density vs length
-plot(density_df1$total_sites, sort(density_df$effective_density),
+##optional
+### plot Density vs length (optional)
+plot(density_df$total_sites, sort(density_df$effective_density),
      xlab = "Gene length", ylab = "Effective density")
 
-## Plot total hits (reads) vs effective sites
+## Plot total hits (reads) vs effective sites (optional)
 ggplot(density_df, aes(total_hits, effective_density, color = location)) + 
   geom_point() + 
   facet_wrap(location ~ .)
 
-## Box plot of total reads 
-ggplot(density_df1, aes(location, total_hits, fill = location)) + 
+## Box plot of total reads (optional)
+ggplot(density_df, aes(location, total_hits, fill = location)) + 
   geom_boxplot() 
 
-## Box plot of effective density by location (total)
-ggplot(density_df1, aes(location, effective_density, fill = location)) + 
+## Box plot of effective density by location (total) (optional)
+ggplot(density_df, aes(location, effective_density, fill = location)) + 
   geom_boxplot() 
 
-## Overall 'blank' (shannon, hits, etc) by treatment
-ggplot(density_df1, aes(treatment, total_hits, fill = location)) + 
+## Overall 'blank' (shannon, hits, etc) by treatment (optional)
+ggplot(density_df, aes(treatment, total_hits, fill = location)) + 
   geom_boxplot()
 
 
-#### calculate the overall mean of the effective density data 
-overall_means <- density_df1 %>% 
-  group_by(location) %>% 
-  summarize(mean_eff_dens = mean(effective_density))
-
-
-### Hit profile for any one gene
+### Hit profile for any one gene (optional)
 single<- long_df %>% 
   filter(gene_name == unique_gene_names[86])   
 
@@ -206,67 +203,84 @@ ggplot(single, aes(Pos - min(Pos), count, color = location)) +
   theme_light()
 
 
-#log2 fold change
-meaneffectivedensity <- density_df1 %>% 
+
+# TnDivA: Log2-fold change calculation for each gene (1st statistical method)
+
+#Calculate mean of effective density per gene for all the replicates in both "Ground" and "ISS" separately
+meaneffectivedensity <- density_pos_df %>% 
   group_by(gene_name, location) %>% 
   summarize(mean_eff_dens = mean(effective_density))
-write.csv(meaneffectivedensity, "meaneffectivedensity1.csv")
 
 
-#ratio of effectivedensity data
+#Calculate ratio of mean effective density data "Ground" by "ISS" for each gene
 
-ratioeffectivedensity_df <- meaneffectivedensity %>%
+# Convert the data in long format. This keeps the mean effective density value in separate columns named as "G" and "I" for each gene
+ratioeffectivedensity_pos_df <- meaneffectivedensity %>%
   dplyr::group_by(gene_name, location) %>%
   pivot_wider(names_from = "location", values_from = "mean_eff_dens")
 
-#Position information in the se
-gene_positions <- density_df1 %>%
+#Extract the Position information
+gene_positions <- density_pos_df %>%
   group_by(gene_name) %>%
   summarize(Start_Pos = min(Start_Pos), End_Pos = max(End_Pos))
 
 # Now, merge the gene positions with ratioeffectivedensity_df
-ratioeffectivedensity_df <- ratioeffectivedensity_df %>%
+ratioeffectivedensity_df <- ratioeffectivedensity_pos_df %>%
   left_join(gene_positions, by = "gene_name")
 
 
-# Write the updated data frame to a CSV file
-write.csv(ratioeffectivedensity_df, "ratioeffectivedensity2.csv")
-
-
+# Take the ratio of mean effective density "Ground" by "ISS" for each gene
 ratioeffectivedensity_df$ratio <- ratioeffectivedensity_df$G/ratioeffectivedensity_df$I
-write.csv(ratioeffectivedensity_df, "ratioeffectivedensity_df1.csv")
 
-ratioeffectivedensity1_df<- log2(as.numeric(ratioeffectivedensity_df$ratio))
-newratiodata<- bind_cols(ratioeffectivedensity_df, ratioeffectivedensity1_df)
+
+# Calculate log2 of ratio (G/I) and 
+
+ratioeffectivedensitylog_df<- log2(as.numeric(ratioeffectivedensity_df$ratio))
+newratiodata<- bind_cols(ratioeffectivedensity_df, ratioeffectivedensitylog_df)
 colnames(newratiodata) <- c('gene_name','G','I','Start_Pos', 'End_Pos', 'ratio', 'log2folddensity')
 
+#write an output file of log2 fold change for all the genes in the dataset to .csv file
+write.csv(newratiodata, 'newratiodata.csv')
 
-# log2fold change plot
 
-  ggplot(newratiodata, aes(Start_Pos, log2folddensity)) +
+#plot log2 fold change vs genome position
+ggplot(newratiodata, aes(Start_Pos, log2folddensity)) +
   geom_point(size = 0.7) +
-  geom_text(aes(label = ifelse(log2folddensity > 1, as.character(gene_name), '')), 
-            hjust = 0.2, vjust = 2.6, angle = 0, size = 3.1, nudge_y = 0.2) +
-  geom_text(aes(label = ifelse(log2folddensity < 0, as.character(gene_name), '')), 
-            hjust = 0.5, vjust = -2.2, angle = 0, size = 3.1, nudge_y = -0.2) +
+  geom_text_repel(aes(label = ifelse(log2folddensity > 1, as.character(gene_name), '')), 
+                  box.padding = 0.5, 
+                  point.padding = 0.2,
+                  segment.color = "transparent",
+                  size = 3) +
+  geom_text_repel(aes(label = ifelse(log2folddensity < 0, as.character(gene_name), '')), 
+                  box.padding = 0.5, 
+                  point.padding = 0.2,
+                  segment.color = "transparent",
+                  size = 3) +
   scale_x_continuous(breaks = seq(0, 5000000, by = 1000000),
-                     labels = c("0","1,000,000", "2,000,000", "3,000,000", "4,000,000", "5,000,000")) +
+                     labels = c("0", "1,000,000", "2,000,000", "3,000,000", "4,000,000", "5,000,000")) +
   xlab("Genome Position") +
   ylab("Log2-fold density") +
   ggtitle("Log2-fold change AI-2") +
   theme(panel.grid = element_blank(), panel.background = element_blank()) +
-  theme(plot.title = element_text(hjust = 0.5),
-        axis.line = element_line(color = "black", size = 0.5),  # Add the axis lines
-        axis.line.x = element_line(color = "black", size = 0.5))  # Add the x-axis line
-  
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.line = element_line(color = "black", linewidth = 0.2),  # Use linewidth instead of size
+        axis.line.x = element_line(color = "black", linewidth = 0.2),  # Use linewidth instead of size
+        legend.key = element_rect(fill = "transparent", linewidth = 2),  # Use linewidth for legend.key
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14, face = "bold"))  # Adjust legend title size
 
-#influential genes: Cook's distance
-midpoint_df <-density_df1 %>% 
+
+#TnDivA: Linear regression analysis by calculating Cook's distance (2nd statistical method)
+
+#Calculate the midpoint (mean) of effective density per gene in Ground and ISS condition for generating a linear regression model and calculating the cook's distance
+midpoint_df <-density_pos_df %>% 
   group_by(gene_name, location) %>% 
   summarize(mean_eff_dens = mean(effective_density)) %>% 
   pivot_wider(names_from = 'location', values_from = 'mean_eff_dens') %>% 
   mutate(midpoint = mean(c(G,I)))
 
+
+#Calculate Cook's distance for each gene by regressing the average effective density values of the two conditions (Ground and ISS) against each other
 model <- lm(I ~ G, data = midpoint_df)
 summary(model)
 cooks <- cooks.distance(model)
@@ -274,10 +288,12 @@ influential_df <- midpoint_df[which(cooks > 4/nrow(midpoint_df)),]
 influential_df <- influential_df %>%
   mutate(influential = "Yes") %>%
   select(influential, gene_name)
+
+#List of influential gene that have cook's distance >4/n(number of genes) as an output in .csv format
 write.csv(influential_df , "influential4.csv ")
 
 
-# Plot the cook's distance graph (G Vs I)
+# Linear regression plot of ISS effective density vs ground effective density (Influential genes labelled in red and non-influential in black)
 
 ggplot(midpoint_df, aes(G, I)) +
   geom_point(data = midpoint_df, aes(color = ifelse(cooks > 4 / nrow(midpoint_df), "Influential", "Non-influential")), pch = 21, size = 2) +
@@ -286,21 +302,24 @@ ggplot(midpoint_df, aes(G, I)) +
   geom_abline(aes(intercept = 0, slope = 1), linetype = 3) +
   geom_smooth(method = 'lm', se = FALSE) +
   theme(panel.grid = element_blank(), panel.background = element_blank(),
-        axis.line = element_line(color = "black", size = 0.5),  # Add the axis lines
-        axis.line.x = element_line(color = "black", size = 0.5),  # Add the x-axis line
-        axis.line.y = element_line(color = "black", size = 0.5),  # Add the y-axis line
-        axis.title.x = element_text(hjust = 0.5), axis.title.y = element_text(hjust = 0.5),
-        plot.title = element_text(hjust = 0.5)) +
+        axis.line = element_line(color = "black", size = 0.7),  # Increase the axis line size
+        axis.line.x = element_line(color = "black", size = 0.7),  # Increase the x-axis line size
+        axis.line.y = element_line(color = "black", size = 0.7),  # Increase the y-axis line size
+        axis.title.x = element_text(size = 12, face = "bold"),  # Increase axis title size and make it bold
+        axis.title.y = element_text(size = 12, face = "bold"),  # Increase axis title size and make it bold
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        legend.title = element_text(size = 12, face = "bold"),  # Make legend title bold
+        legend.text = element_text(size = 12, face = "bold")) +  # Make legend text (labels) bold
   labs(title = "Cook's distance AI-2", x = "Ground Effective density", y = "ISS Effective density") +
   scale_color_manual(values = c("Non-influential" = "black", "Influential" = "red")) +
   coord_fixed(ratio = 1.2) +  # Adjust the aspect ratio if needed
   guides(color = guide_legend(title = "", override.aes = list(shape = 21, size = 2))) +
-  theme(legend.key = element_blank())  # Remove the legend back_ground
-  
-  
-  
-  ###  Do statistical comparisons across each gene "Welch's t-test"
-  t_test_list <- list()
+  theme(legend.key = element_blank())  # Remove the legend background
+
+
+## TnDivA: 
+###  Do statistical comparisons across each gene "Welch's t-test"
+t_test_list <- list()
 perm_t_test_list <- list()
 jost_ratio <- c()
 hit_ratio <- c()
@@ -340,15 +359,11 @@ t_test_df <- t_test_list %>%
   matrix(., ncol = 3, byrow = TRUE) %>% 
   as.data.frame()
 names(t_test_df) <- c('t', 'p', 'gene_name') 
+
+#Output file with the p values for all the genes in .csv file
 write.csv(t_test_df, "t_test_df.csv")
 
 
-
-# Extract rows with p <= 0.01
-significant_genes.05 <- subset(t_test_df, p <= 0.05, select = c(gene_name, p, t))
-
-# Write to CSV file
-write.csv(significant_genes.05, file = "significant_genes.05.csv", row.names = FALSE)
 
 #plot
 ggplot(t_test_df, aes(t, p)) + 
@@ -356,18 +371,13 @@ ggplot(t_test_df, aes(t, p)) +
   geom_hline(yintercept = 0.05)
 
 
-## Number of significat (p ≤ 0.05 ) and  (p ≤ 0.01)
+## Find the number of Number of significat (p ≤ 0.05 ) or (p ≤ 0.01) by changing the value
 sum(t_test_df$p <= 0.05)  ## t test
-sum(t_test_df_bh <= 0.05)
 t.test0.05 <- which(t_test_df$p <= 0.05)
 write.csv(t.test0.01, "t.test0.05.csv")
-sum(unlist(perm_t_test_list) <= 0.05)  ## permutation test
 
-## Plot p values for t test vs permutation test
-plot(t_test_df$p, unlist(perm_t_test_list))
-abline(v = 0.05)
 
-#log plot
+#log plot (optional)
 plot(t_test$p, unlist(perm_t_test_list))
 abline(v = 0.05)
 log_p_values <- log(as.numeric(t_test_df$p))
@@ -376,7 +386,7 @@ plot (perm_t_test_list, log_p_values)
 abline(v = (0.05))
 
 
-## Plot of ratio of effective number of sites (ground / space)
+## Plot of ratio of effective number of sites (ground / space) (optional)
 barplot(unlist(jost_ratio),
         xlab = "Gene", ylab = 'effective sites ratio (ground/space)')
 abline(h=1, lty = 2)
@@ -386,52 +396,28 @@ barplot(unlist(hit_ratio),
         xlab = "Gene", ylab = 'total hits ratio (ground/space)')
 abline(h=1, lty = 2)
 
-#log2 fold plot
-
-
-ggplot(newdatawithlogdensity, aes(gene_name, log_mean_eff_dens)) + 
-  geom_point() 
+ 
 
 
 
 
 
 
-#   
-#   ############### MacArthur 1965 difference
-# xxx <- new_df %>% 
-#     filter(gene_name == 'ABD25800.1')
-# 
-# x1 <- xxx[,3]
-# x2 <- xxx[,4]
-# 
-# H1 <- diversity(x1)       
-# H2 <-diversity(x2)
-# Ht <- diversity(colMeans(rbind(x1,
-#                x2)))
-# 
-# eff_vec <- exp(c(H1,H2))
-# 
-# eff_diff <- exp(Ht - mean(c(H1,H2)))
-# 
-# eff_diff - exp(Ht) / exp(mean(c(H1,H2)))
 
 
-#   
-#   
-# nnn <- long_df %>% 
-#   filter(gene_name == 'ABD25800.1', treatment == 'GH2_5_S45') %>%
-#   # group_by(gene_name, treatment) %>%
-#   # select(count) %>% 
-#   mutate(rad = radfit(count)$y)  %>% 
-#   mutate(rank = 1:nrow(.))
-# 
-# 
-# 
-# ggplot(nnn, aes(rank, as.integer(rad))) + geom_point() 
-# 
-# 
-#   
+
+
+
+
+
+
+
+
+  
+
+
+ 
+ 
 
 
 
